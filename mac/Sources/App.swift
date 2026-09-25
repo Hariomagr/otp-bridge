@@ -190,6 +190,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var statusController: StatusItemController?
     private var messagesWindow: MessagesWindowController?
 
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        // Single-instance guard: if another copy is already running (e.g. the
+        // login-item launch plus a manual launch), quit before adding a second
+        // menu-bar icon.
+        let me = ProcessInfo.processInfo.processIdentifier
+        let others = NSRunningApplication.runningApplications(
+            withBundleIdentifier: Bundle.main.bundleIdentifier ?? "com.hari.otpbridge"
+        ).filter { $0.processIdentifier != me }
+        if !others.isEmpty { exit(0) }
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         Notifications.configure(delegate: self)
         model.start()
