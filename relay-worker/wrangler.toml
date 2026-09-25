@@ -1,0 +1,17 @@
+name = "otp-relay"
+main = "src/worker.js"
+compatibility_date = "2025-07-01"
+
+# Expose the worker on its <name>.<subdomain>.workers.dev URL.
+workers_dev = true
+
+# One Durable Object holds all rooms (personal single-pair = tiny scale).
+[[durable_objects.bindings]]
+name = "RELAY"
+class_name = "Relay"
+
+# IMPORTANT: new_sqlite_classes (not new_classes) — SQLite-backed Durable
+# Objects are the ones allowed on the free plan (no credit card).
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Relay"]

@@ -1,0 +1,19 @@
+# Fly.io config for the OTP Bridge relay.
+# Change `app` to a unique name, then: fly launch --copy-config --no-deploy
+app = "otp-bridge-relay"
+primary_region = "sin"          # pick one near you: fly platform regions
+
+[build]
+  dockerfile = "Dockerfile"
+
+[http_service]
+  internal_port = 8080          # matches ENV PORT in the Dockerfile
+  force_https = true            # gives you wss:// for free
+  auto_stop_machines = "stop"   # scale to zero when idle to stay in free tier
+  auto_start_machines = true
+  min_machines_running = 0
+
+# One shared machine is plenty for a personal single-pair relay.
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"

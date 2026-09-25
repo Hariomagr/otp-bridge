@@ -1,0 +1,17 @@
+{
+  "name": "otp-bridge-relay",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Zero-knowledge WebSocket relay for OTP Bridge. Only ever sees ciphertext.",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

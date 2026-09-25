@@ -1,0 +1,21 @@
+# Node
+relay/node_modules/
+relay-worker/node_modules/
+relay-worker/.wrangler/
+
+# Mac
+mac/build/
+
+# Android
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.idea/
+android/build/CryptoInterop.class
+
+# Java interop harness output
+android/build/
+
+# macOS
+.DS_Store
