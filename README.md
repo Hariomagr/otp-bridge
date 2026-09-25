@@ -53,6 +53,12 @@ Node, Swift (Mac), and Java (Android).
   reachable (LAN discoverable or present on the relay).
 - **Relay controls on Mac**: lock the URL after setting, Change to edit, and
   Disable/Enable without losing the URL.
+- **Call alerts + remote Accept/Reject**: incoming / missed calls show on the
+  Mac with caller name (via the Android call-screening role for ring-time
+  caller ID). Accept/Reject from the notification or the menu footer answer or
+  end the call on the phone (`TelecomManager`). Reject/Accept use the relay as
+  the Mac→phone reverse channel. (Two-way call audio isn't possible — Android
+  blocks in-call audio capture for third-party apps.)
 
 ---
 
@@ -112,7 +118,10 @@ In the app:
 1. **Grant SMS & notification permissions.**
 2. **Disable battery optimization** (important on Samsung/Xiaomi/Oppo/Vivo so
    the SMS receiver isn't killed in the background).
-3. **Pair with Mac (scan QR)** — scan the QR from the Mac app.
+3. **Enable caller ID (call screening)** — grants the call-screening role so the
+   caller's number/name is available at ring time (optional; call alerts still
+   work without it, just with less reliable caller ID).
+4. **Pair with Mac (scan QR)** — scan the QR from the Mac app.
 4. With the Mac app open you'll see **"Mac connected"** and a **Send a test
    OTP** button — tap it; a notification should appear on the Mac within a
    second or two.

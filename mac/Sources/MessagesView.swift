@@ -86,10 +86,18 @@ private struct MessageRow: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            // Dot marks OTP messages.
-            Circle()
-                .fill(msg.code != nil ? Color.accentColor : Color.secondary.opacity(0.25))
-                .frame(width: 8, height: 8)
+            if msg.isCall {
+                let declined = msg.callState == "missed" || msg.callState == "rejected"
+                Image(systemName: declined ? "phone.down.fill" : "phone.fill")
+                    .font(.caption2)
+                    .foregroundStyle(declined ? .red : .green)
+                    .frame(width: 10)
+            } else {
+                // Dot marks OTP messages.
+                Circle()
+                    .fill(msg.code != nil ? Color.accentColor : Color.secondary.opacity(0.25))
+                    .frame(width: 8, height: 8)
+            }
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack {

@@ -11,6 +11,18 @@ data class OtpMessage(
     val title: String? = null,
     val text: String,
     val code: String? = null,
+    val kind: String = "sms",       // "sms" | "call"
+    val number: String? = null,     // call: raw number
+    val name: String? = null,       // call: resolved contact name
+    val callState: String? = null,  // call: "incoming" | "missed"
+)
+
+/** Mac -> phone command (e.g. reject a ringing call). */
+@Serializable
+data class Command(
+    val kind: String = "cmd",
+    val cmd: String,        // "reject_call"
+    val callId: String,
 )
 
 @Serializable

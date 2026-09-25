@@ -47,6 +47,14 @@ final class RelayClient: NSObject {
         }
     }
 
+    /// Send an encrypted envelope to the room (reverse channel: Mac -> phone).
+    func send(_ env: Envelope) {
+        guard let data = try? JSONEncoder().encode(
+            ["type": "msg", "room": env.room, "nonce": env.nonce, "ct": env.ct]
+        ), let text = String(data: data, encoding: .utf8) else { return }
+        task?.send(.string(text)) { _ in }
+    }
+
     private func receive() {
         task?.receive { [weak self] result in
             guard let self else { return }

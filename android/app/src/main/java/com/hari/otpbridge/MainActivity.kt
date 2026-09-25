@@ -2,6 +2,7 @@ package com.hari.otpbridge
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.app.role.RoleManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -47,6 +48,8 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         refresh.intValue++
+        // Keep the reverse-command link alive whenever the app is opened.
+        if (PairingStore(this).isPaired) runCatching { CommandService.start(this) }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -60,6 +63,11 @@ class MainActivity : ComponentActivity() {
                     var status by remember { mutableStateOf(pairStatus(store)) }
                     val permsGranted = remember(tick) { hasAllPermissions() }
                     val batteryOk = remember(tick) { isIgnoringBatteryOptimizations() }
+                    val screeningHeld = remember(tick) { isScreeningRoleHeld() }
+
+                    val roleLauncher = rememberLauncherForActivityResult(
+                        ActivityResultContracts.StartActivityForResult()
+                    ) { refresh.intValue++ }
 
                     // Is the Mac reachable? On LAN (service discoverable) or on
                     // the relay (peer present). Re-probed on resume and after pairing.
@@ -120,6 +128,17 @@ class MainActivity : ComponentActivity() {
                             }
                         }
 
+                        // Call-screening role: lets us show the caller's number/name
+                        // at ring time (Recommended for reliable caller ID).
+                        if (!screeningHeld && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                            Button(onClick = {
+                                val rm = getSystemService(RoleManager::class.java)
+                                if (rm != null && rm.isRoleAvailable(RoleManager.ROLE_CALL_SCREENING)) {
+                                    roleLauncher.launch(rm.createRequestRoleIntent(RoleManager.ROLE_CALL_SCREENING))
+                                }
+                            }) { Text("Enable caller ID (call screening)") }
+                        }
+
                         if (store.isPaired) {
                             Text(
                                 when {
@@ -148,6 +167,10 @@ class MainActivity : ComponentActivity() {
 
     private fun requiredPermissions(): Array<String> = buildList {
         add(Manifest.permission.RECEIVE_SMS)
+        add(Manifest.permission.READ_PHONE_STATE)
+        add(Manifest.permission.READ_CALL_LOG)
+        add(Manifest.permission.READ_CONTACTS)
+        add(Manifest.permission.ANSWER_PHONE_CALLS)
         // Camera not needed: the ML Kit code scanner runs in Google Play Services.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             add(Manifest.permission.POST_NOTIFICATIONS)
@@ -161,6 +184,12 @@ class MainActivity : ComponentActivity() {
     private fun isIgnoringBatteryOptimizations(): Boolean {
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
         return pm.isIgnoringBatteryOptimizations(packageName)
+    }
+
+    private fun isScreeningRoleHeld(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return false
+        val rm = getSystemService(RoleManager::class.java) ?: return false
+        return rm.isRoleHeld(RoleManager.ROLE_CALL_SCREENING)
     }
 
     @SuppressLint("BatteryLife")

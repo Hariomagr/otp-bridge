@@ -15,12 +15,13 @@ final class AppModel: ObservableObject {
     @Published var relayLocked = false          // field read-only until "Change"
     @Published var relayEnabled = true          // relay delivery on/off (URL kept)
     @Published var messages: [OTPMessage] = []  // full history, newest first
+    @Published var activeCall: OTPMessage?      // currently ringing incoming call
 
     private var lan: LANListener?
     private var relay: RelayClient?
-    private var seenIDs: [String] = []          // bounded dedupe window
     private let clipboardClearAfter: TimeInterval = 60
     private let messageStore = MessageStore()
+    private var rejectedCallIds = Set<String>()   // ignore late churn after reject
 
     func start() {
         relayField = pairing.config.relay
@@ -82,21 +83,78 @@ final class AppModel: ObservableObject {
         guard let plaintext = try? crypto.open(nonceB64: env.nonce, ctB64: env.ct),
               let msg = try? JSONDecoder().decode(OTPMessage.self, from: plaintext) else { return }
 
-        guard !seenIDs.contains(msg.id),
-              !messages.contains(where: { $0.id == msg.id }) else { return }  // dedupe
-        seenIDs.append(msg.id)
-        if seenIDs.count > 200 { seenIDs.removeFirst(seenIDs.count - 200) }
+        // Once a call is rejected here, ignore its late churn (number/name
+        // arriving, or the resulting "missed") so the Reject panel doesn't
+        // reappear and the entry stays labelled "Rejected".
+        if msg.isCall && rejectedCallIds.contains(msg.id) { return }
 
-        // Every message (SMS or otherwise) goes into the history list…
-        messages.insert(msg, at: 0)
+        let existing = messages.firstIndex(where: { $0.id == msg.id })
+        if let idx = existing {
+            // Duplicate delivery. Calls may legitimately update (a late number/
+            // name, or a state change on the same call id); SMS/OTP dupes ignored.
+            guard msg.isCall else { return }
+            messages[idx] = msg
+        } else {
+            messages.insert(msg, at: 0)
+        }
         messageStore.save(messages)
         lastMessage = msg
 
-        // …but only OTPs raise a notification and auto-copy.
         if let code = msg.code {
-            Notifications.present(msg)
-            copy(code)
+            if existing == nil { Notifications.present(msg); copy(code) }
+        } else if msg.isCall {
+            processCall(msg)
         }
+    }
+
+    private func processCall(_ msg: OTPMessage) {
+        switch msg.callState {
+        case "incoming":
+            activeCall = msg                 // keep a persistent Reject in the menu
+            Notifications.presentCall(msg)
+        case "missed":
+            if activeCall?.id == msg.id { activeCall = nil }
+            Notifications.presentCall(msg)
+        default:                             // answered / ended
+            if activeCall?.id == msg.id { activeCall = nil }
+        }
+    }
+
+    /// Send an encrypted reject command back to the phone via the relay.
+    func rejectCall(_ callId: String) {
+        guard let crypto = pairing.crypto else { return }
+        let cmd = Command(kind: "cmd", cmd: "reject_call", callId: callId)
+        if let data = try? JSONEncoder().encode(cmd), let sealed = try? crypto.seal(data) {
+            relay?.send(Envelope(room: pairing.config.room, nonce: sealed.nonce, ct: sealed.ct))
+        }
+
+        rejectedCallIds.insert(callId)
+        if rejectedCallIds.count > 300 { rejectedCallIds.removeAll() }
+
+        // Relabel the history entry as rejected.
+        if let idx = messages.firstIndex(where: { $0.id == callId }) {
+            let old = messages[idx]
+            let display = old.name ?? old.number ?? "Unknown"
+            messages[idx] = OTPMessage(
+                id: old.id, ts: old.ts, source: old.source, sender: old.sender,
+                title: old.title, text: "Rejected call from \(display)", code: nil,
+                kind: "call", number: old.number, name: old.name, callState: "rejected"
+            )
+            messageStore.save(messages)
+        }
+
+        if activeCall?.id == callId { activeCall = nil }
+    }
+
+    /// Answer the ringing call on the phone (audio stays on the phone).
+    func acceptCall(_ callId: String) {
+        guard let crypto = pairing.crypto else { return }
+        let cmd = Command(kind: "cmd", cmd: "accept_call", callId: callId)
+        if let data = try? JSONEncoder().encode(cmd), let sealed = try? crypto.seal(data) {
+            relay?.send(Envelope(room: pairing.config.room, nonce: sealed.nonce, ct: sealed.ct))
+        }
+        // The phone will report "answered", which also clears the panel.
+        if activeCall?.id == callId { activeCall = nil }
     }
 
     func deleteMessages(_ ids: Set<String>) {
@@ -140,6 +198,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         statusController = StatusItemController(
             rootView: MenuContent(model: model, openMessages: { windows.show() })
         )
+
+        // Open the Messages window on a direct user launch, but stay quiet when
+        // auto-started hidden at login (that isn't a "default" launch).
+        let isDefaultLaunch = notification.userInfo?["NSApplicationLaunchIsDefaultLaunchKey"] as? Bool ?? true
+        if isDefaultLaunch { windows.show() }
+    }
+
+    // Clicking the app in the Dock/Finder while it's already running reopens
+    // the Messages window.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        messagesWindow?.show()
+        return true
     }
 
     // Show notifications even while the app is frontmost.
@@ -153,9 +223,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func userNotificationCenter(_ center: UNUserNotificationCenter,
                                 didReceive response: UNNotificationResponse,
                                 withCompletionHandler completionHandler: @escaping () -> Void) {
+        let userInfo = response.notification.request.content.userInfo
         if response.actionIdentifier == Notifications.copyActionID,
-           let code = response.notification.request.content.userInfo["code"] as? String {
+           let code = userInfo["code"] as? String {
             Task { @MainActor in self.model.copy(code) }
+        } else if response.actionIdentifier == Notifications.rejectActionID,
+                  let callId = userInfo["callId"] as? String {
+            Task { @MainActor in self.model.rejectCall(callId) }
+        } else if response.actionIdentifier == Notifications.acceptActionID,
+                  let callId = userInfo["callId"] as? String {
+            Task { @MainActor in self.model.acceptCall(callId) }
         }
         completionHandler()
     }
@@ -233,6 +310,31 @@ struct MenuContent: View {
                     Text("Scan from the phone app to pair.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
+            }
+
+            // Active call controls live in the footer (not the notification).
+            if let call = model.activeCall {
+                Divider()
+                VStack(alignment: .leading, spacing: 6) {
+                    Label("Incoming call", systemImage: "phone.fill")
+                        .font(.caption).foregroundStyle(.green)
+                    Text(call.name ?? call.number ?? "Unknown")
+                        .font(.callout).fontWeight(.semibold)
+                    if let num = call.number, call.name != nil {
+                        Text(num).font(.caption2).foregroundStyle(.secondary)
+                    }
+                    HStack {
+                        Button { model.acceptCall(call.id) } label: {
+                            Label("Accept", systemImage: "phone.fill").frame(maxWidth: .infinity)
+                        }
+                        .tint(.green)
+                        Button(role: .destructive) { model.rejectCall(call.id) } label: {
+                            Label("Reject", systemImage: "phone.down.fill").frame(maxWidth: .infinity)
+                        }
+                    }
+                }
+                .padding(10)
+                .background(RoundedRectangle(cornerRadius: 8).fill(Color.red.opacity(0.12)))
             }
 
             Divider()
