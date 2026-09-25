@@ -11,10 +11,19 @@ data class OtpMessage(
     val title: String? = null,
     val text: String,
     val code: String? = null,
-    val kind: String = "sms",       // "sms" | "call"
+    val kind: String = "sms",       // "sms" | "call" | "text" | "file"
     val number: String? = null,     // call: raw number
     val name: String? = null,       // call: resolved contact name
     val callState: String? = null,  // call: "incoming" | "missed"
+)
+
+/** File-transfer header, sent as the first frame of a LAN transfer. */
+@Serializable
+data class FileMeta(
+    val id: String,
+    val name: String,
+    val mime: String,
+    val size: Int,
 )
 
 /** Mac -> phone command (e.g. reject a ringing call). */

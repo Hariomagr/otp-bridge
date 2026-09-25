@@ -27,6 +27,8 @@
     <key>NSBonjourServices</key>
     <array>
         <string>_otpbridge._tcp</string>
+        <string>_obfmac._tcp</string>
+        <string>_obfand._tcp</string>
     </array>
 </dict>
 </plist>

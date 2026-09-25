@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Public Downloads dir, used on Android < 10 for opening received files. -->
+    <external-path name="downloads" path="Download/" />
+</paths>

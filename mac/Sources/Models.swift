@@ -16,13 +16,27 @@ struct OTPMessage: Codable, Identifiable {
     let title: String?
     let text: String
     let code: String?
-    var kind: String?        // "sms" | "call" (nil == sms)
+    var kind: String?        // "sms" | "call" | "text" | "file"
     var number: String?      // call
     var name: String?        // call
     var callState: String?   // "incoming" | "missed"
+    var fileName: String? = nil    // file
+    var localPath: String? = nil   // file: where it was saved on this Mac
 
     var isCall: Bool { kind == "call" }
     var isIncomingCall: Bool { kind == "call" && callState == "incoming" }
+    var isText: Bool { kind == "text" }
+    var isFile: Bool { kind == "file" }
+}
+
+/// A plain text share from the Mac to the phone, encrypted like everything else.
+/// `from: "mac"` lets the phone ignore its own relayed texts (no echo).
+struct TextPayload: Codable {
+    let kind: String   // "text"
+    let from: String   // "mac"
+    let id: String
+    let ts: Double
+    let text: String
 }
 
 /// Mac -> phone command (reject a ringing call), encrypted like everything else.

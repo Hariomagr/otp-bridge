@@ -42,6 +42,28 @@ enum Notifications {
         )
     }
 
+    /// A file received from the phone (saved to Downloads).
+    static func presentFile(_ name: String) {
+        let content = UNMutableNotificationContent()
+        content.title = "File received"
+        content.body = "\(name) — saved to Downloads"
+        content.sound = .default
+        UNUserNotificationCenter.current().add(
+            UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
+        )
+    }
+
+    /// Text shared from the phone (copied to the clipboard automatically).
+    static func presentText(_ msg: OTPMessage) {
+        let content = UNMutableNotificationContent()
+        content.title = "Text from phone"
+        content.body = msg.text
+        content.sound = .default
+        UNUserNotificationCenter.current().add(
+            UNNotificationRequest(identifier: msg.id, content: content, trigger: nil)
+        )
+    }
+
     /// Incoming calls get Accept/Reject actions on the notification too (the
     /// same controls also live in the menu footer).
     static func presentCall(_ msg: OTPMessage) {

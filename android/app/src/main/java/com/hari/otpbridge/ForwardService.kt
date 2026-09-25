@@ -72,7 +72,8 @@ class ForwardService : Service() {
         return Notification.Builder(this, CHANNEL_ID)
             .setContentTitle("OTP Bridge")
             .setContentText("Forwarding a code to your Mac…")
-            .setSmallIcon(android.R.drawable.ic_dialog_email)
+            .setSmallIcon(NotifIcons.small)
+            .setLargeIcon(NotifIcons.large(this))
             .build()
     }
 

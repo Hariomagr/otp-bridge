@@ -101,6 +101,39 @@ func renderPNG(pixels: Int, round: Bool) -> Data {
     return rep.representation(using: .png, properties: [:])!
 }
 
+/// White mascot silhouette on transparent — for Android status-bar small icons
+/// (Android masks small icons to their alpha channel, so they must be white).
+func drawSilhouette(s: CGFloat) {
+    NSColor.white.setFill()
+    // Ears + head as one white shape.
+    NSBezierPath(ovalIn: NSRect(x: s * 0.19, y: s * 0.28, width: s * 0.17, height: s * 0.36)).fill()
+    NSBezierPath(ovalIn: NSRect(x: s * 0.64, y: s * 0.28, width: s * 0.17, height: s * 0.36)).fill()
+    NSBezierPath(ovalIn: NSRect(x: s * 0.26, y: s * 0.30, width: s * 0.48, height: s * 0.45)).fill()
+
+    // Punch out eyes and nose so features read as holes.
+    NSGraphicsContext.current?.compositingOperation = .destinationOut
+    NSColor.black.setFill()
+    let eyeR = s * 0.055, eyeY = s * 0.55
+    for cx in [s * 0.42, s * 0.58] {
+        NSBezierPath(ovalIn: NSRect(x: cx - eyeR, y: eyeY - eyeR, width: eyeR * 2, height: eyeR * 2)).fill()
+    }
+    NSBezierPath(ovalIn: NSRect(x: s * 0.46, y: s * 0.40, width: s * 0.08, height: s * 0.06)).fill()
+    NSGraphicsContext.current?.compositingOperation = .sourceOver
+}
+
+func renderSilhouettePNG(pixels: Int) -> Data {
+    let rep = NSBitmapImageRep(
+        bitmapDataPlanes: nil, pixelsWide: pixels, pixelsHigh: pixels,
+        bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+        colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
+    )!
+    NSGraphicsContext.saveGraphicsState()
+    NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+    drawSilhouette(s: CGFloat(pixels))
+    NSGraphicsContext.restoreGraphicsState()
+    return rep.representation(using: .png, properties: [:])!
+}
+
 let fm = FileManager.default
 let iconsetDir = CommandLine.arguments[1]
 let androidRes = CommandLine.arguments[2]
@@ -131,4 +164,15 @@ for (px, dir) in androidSizes {
     try! renderPNG(pixels: px, round: true).write(to: URL(fileURLWithPath: "\(path)/ic_launcher_round.png"))
 }
 
-print("Icons written: \(iconsetDir) and \(androidRes)/mipmap-*")
+// Android notification small icons (white silhouette) in drawable-*.
+let notifSizes: [(Int, String)] = [
+    (24, "drawable-mdpi"), (36, "drawable-hdpi"), (48, "drawable-xhdpi"),
+    (72, "drawable-xxhdpi"), (96, "drawable-xxxhdpi"),
+]
+for (px, dir) in notifSizes {
+    let path = "\(androidRes)/\(dir)"
+    try? fm.createDirectory(atPath: path, withIntermediateDirectories: true)
+    try! renderSilhouettePNG(pixels: px).write(to: URL(fileURLWithPath: "\(path)/ic_stat_mascot.png"))
+}
+
+print("Icons written: \(iconsetDir) and \(androidRes)/mipmap-* + drawable-*/ic_stat_mascot")

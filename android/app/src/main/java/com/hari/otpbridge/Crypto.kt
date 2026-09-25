@@ -27,6 +27,25 @@ object Crypto {
         )
     }
 
+    /** Raw binary seal for file frames: returns nonce(12) || ciphertext || tag. */
+    fun sealRaw(keyB64: String, room: String, plaintext: ByteArray): ByteArray {
+        val key = SecretKeySpec(Base64.decode(keyB64, Base64.NO_WRAP), "AES")
+        val nonce = ByteArray(12).also { rng.nextBytes(it) }
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.ENCRYPT_MODE, key, GCMParameterSpec(128, nonce))
+        cipher.updateAAD(room.toByteArray(Charsets.UTF_8))
+        return nonce + cipher.doFinal(plaintext)   // nonce || ct || tag
+    }
+
+    /** Raw binary open for file frames. nonce = 12 bytes, ctTag = ciphertext||tag. */
+    fun openRaw(keyB64: String, room: String, nonce: ByteArray, ctTag: ByteArray): ByteArray {
+        val key = SecretKeySpec(Base64.decode(keyB64, Base64.NO_WRAP), "AES")
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(128, nonce))
+        cipher.updateAAD(room.toByteArray(Charsets.UTF_8))
+        return cipher.doFinal(ctTag)
+    }
+
     /** Kept for future Mac->phone messages. */
     fun open(keyB64: String, room: String, nonceB64: String, ctB64: String): String {
         val key = SecretKeySpec(Base64.decode(keyB64, Base64.NO_WRAP), "AES")

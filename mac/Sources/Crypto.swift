@@ -34,4 +34,21 @@ struct Crypto {
         return (Data(box.nonce).base64EncodedString(),
                 (box.ciphertext + box.tag).base64EncodedString())
     }
+
+    // Raw binary variants for file-transfer frames (avoid base64 overhead).
+
+    /// Returns nonce(12) || ciphertext || tag(16).
+    func sealRaw(_ plaintext: Data) throws -> Data {
+        let box = try AES.GCM.seal(plaintext, using: key, authenticating: roomAAD)
+        return Data(box.nonce) + box.ciphertext + box.tag
+    }
+
+    func openRaw(nonce: Data, ctTag: Data) throws -> Data {
+        guard ctTag.count >= 16 else { throw CryptoError.badMessage }
+        let sealedNonce = try AES.GCM.Nonce(data: nonce)
+        let tag = ctTag.suffix(16)
+        let ct = ctTag.prefix(ctTag.count - 16)
+        let box = try AES.GCM.SealedBox(nonce: sealedNonce, ciphertext: ct, tag: tag)
+        return try AES.GCM.open(box, using: key, authenticating: roomAAD)
+    }
 }

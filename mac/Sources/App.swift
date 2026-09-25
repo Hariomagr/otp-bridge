@@ -19,6 +19,8 @@ final class AppModel: ObservableObject {
 
     private var lan: LANListener?
     private var relay: RelayClient?
+    private var fileReceiver: FileReceiver?
+    private lazy var fileSender = FileSender(cryptoProvider: { [weak self] in self?.pairing.crypto })
     private let clipboardClearAfter: TimeInterval = 60
     private let messageStore = MessageStore()
     private var rejectedCallIds = Set<String>()   // ignore late churn after reject
@@ -42,6 +44,57 @@ final class AppModel: ObservableObject {
         )
         if relayEnabled && !pairing.config.relay.isEmpty {
             relay?.connect(to: pairing.config.relay)
+        }
+
+        fileReceiver = FileReceiver(
+            cryptoProvider: { [weak self] in self?.pairing.crypto },
+            onFile: { [weak self] name, url in Task { @MainActor in self?.onFileReceived(name, url) } }
+        )
+        fileReceiver?.start()
+    }
+
+    private func onFileReceived(_ name: String, _ url: URL) {
+        let msg = OTPMessage(
+            id: UUID().uuidString, ts: Date().timeIntervalSince1970 * 1000,
+            source: "FILE", sender: nil, title: "Received file", text: "Received \(name)",
+            code: nil, kind: "file", number: nil, name: nil, callState: nil,
+            fileName: name, localPath: url.path
+        )
+        messages.insert(msg, at: 0)
+        messageStore.save(messages)
+        lastMessage = msg
+        Notifications.presentFile(name)
+    }
+
+    func revealFile(_ path: String) {
+        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+    }
+
+    @Published var fileSendStatus: String?
+
+    /// Send files from the Mac to the phone over LAN.
+    func sendFilesToPhone(_ urls: [URL]) {
+        guard !urls.isEmpty else { return }
+        fileSendStatus = "Sending \(urls.count) file(s)…"
+        fileSender.send(urls) { [weak self] sent, found in
+            guard let self else { return }
+            if !found {
+                self.fileSendStatus = "Phone not found on Wi-Fi"
+            } else {
+                self.fileSendStatus = sent == urls.count
+                    ? "Sent \(sent) file(s) to phone"
+                    : "Sent \(sent)/\(urls.count) (some failed)"
+                for url in urls {
+                    let m = OTPMessage(id: UUID().uuidString, ts: Date().timeIntervalSince1970 * 1000,
+                                       source: "You → Phone", sender: nil, title: "Sent file",
+                                       text: "Sent \(url.lastPathComponent)", code: nil, kind: "file",
+                                       number: nil, name: nil, callState: nil,
+                                       fileName: url.lastPathComponent, localPath: url.path)
+                    self.messages.insert(m, at: 0)
+                }
+                self.messageStore.save(self.messages)
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 4) { self.fileSendStatus = nil }
         }
     }
 
@@ -104,7 +157,33 @@ final class AppModel: ObservableObject {
             if existing == nil { Notifications.present(msg); copy(code) }
         } else if msg.isCall {
             processCall(msg)
+        } else if msg.isText {
+            if existing == nil { setClipboard(msg.text); Notifications.presentText(msg) }
         }
+    }
+
+    /// Send a plain text share to the phone (relay reverse channel).
+    func sendText(_ text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let crypto = pairing.crypto else { return }
+        let id = UUID().uuidString
+        let ts = Date().timeIntervalSince1970 * 1000
+        let payload = TextPayload(kind: "text", from: "mac", id: id, ts: ts, text: trimmed)
+        if let data = try? JSONEncoder().encode(payload), let sealed = try? crypto.seal(data) {
+            relay?.send(Envelope(room: pairing.config.room, nonce: sealed.nonce, ct: sealed.ct))
+        }
+        // Record locally as a sent item so it shows in the history.
+        let mine = OTPMessage(id: id, ts: ts, source: "You → Phone", sender: nil,
+                              title: "Sent text", text: trimmed, code: nil,
+                              kind: "text", number: nil, name: nil, callState: nil)
+        messages.insert(mine, at: 0)
+        messageStore.save(messages)
+    }
+
+    func setClipboard(_ s: String) {
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setString(s, forType: .string)
     }
 
     private func processCall(_ msg: OTPMessage) {

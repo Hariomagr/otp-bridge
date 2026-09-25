@@ -59,6 +59,16 @@ Node, Swift (Mac), and Java (Android).
   end the call on the phone (`TelecomManager`). Reject/Accept use the relay as
   the Mac→phone reverse channel. (Two-way call audio isn't possible — Android
   blocks in-call audio capture for third-party apps.)
+- **Share text & files both ways**:
+  - **Text** — send from either side; auto-copies to the clipboard on receipt.
+    Works over LAN and relay (anywhere). Android also registers in the system
+    share sheet.
+  - **Files & images** — send one or many, both directions, over **LAN**
+    (chunked, AES-256-GCM encrypted). Xender-style progress UI on the phone
+    ("File 1 of 3", progress bar, keep-app-open notice). Received files save to
+    **Downloads** on both platforms; tapping the phone notification opens the
+    file, and the Mac offers "Reveal in Finder". (Files are LAN-only — same
+    Wi-Fi required; no relay fallback due to the relay's ~1 MB frame cap.)
 
 ---
 

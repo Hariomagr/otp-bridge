@@ -4,6 +4,7 @@ import android.Manifest
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
@@ -39,9 +40,14 @@ class CommandService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    private var fileServer: FileServer? = null
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startForeground(NOTIF_ID, buildNotification())
         connect()
+        if (fileServer == null) {
+            fileServer = FileServer(applicationContext).also { it.start() }
+        }
         return START_STICKY
     }
 
@@ -83,14 +89,49 @@ class CommandService : Service() {
         val plaintext = runCatching { Crypto.open(cfg.key, cfg.room, nonce, ct) }.getOrNull()
         if (plaintext == null) { Log.d(TAG, "decrypt failed"); return }
         val payload = runCatching { json.parseToJsonElement(plaintext).jsonObject }.getOrNull() ?: return
-        if (payload["kind"]?.jsonPrimitive?.content != "cmd") return
-
-        val cmd = payload["cmd"]?.jsonPrimitive?.content
-        Log.d(TAG, "command received: $cmd")
-        when (cmd) {
-            "reject_call" -> endCall()
-            "accept_call" -> acceptCall()
+        when (payload["kind"]?.jsonPrimitive?.content) {
+            "cmd" -> {
+                val cmd = payload["cmd"]?.jsonPrimitive?.content
+                Log.d(TAG, "command received: $cmd")
+                when (cmd) {
+                    "reject_call" -> endCall()
+                    "accept_call" -> acceptCall()
+                }
+            }
+            "text" -> {
+                // Only show Mac-originated texts (ignore our own relayed copies).
+                if (payload["from"]?.jsonPrimitive?.content == "mac") {
+                    val shared = payload["text"]?.jsonPrimitive?.content
+                    if (!shared.isNullOrEmpty()) showIncomingText(shared)
+                }
+            }
         }
+    }
+
+    private fun showIncomingText(text: String) {
+        val mgr = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            mgr.createNotificationChannel(
+                NotificationChannel(TEXT_CHANNEL_ID, "Text from Mac", NotificationManager.IMPORTANCE_HIGH)
+            )
+        }
+        val copyIntent = Intent(this, CopyActivity::class.java)
+            .putExtra(CopyActivity.EXTRA_TEXT, text)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        val pi = PendingIntent.getActivity(
+            this, text.hashCode(), copyIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val n = Notification.Builder(this, TEXT_CHANNEL_ID)
+            .setContentTitle("Text from Mac (tap to copy)")
+            .setContentText(text)
+            .setStyle(Notification.BigTextStyle().bigText(text))
+            .setSmallIcon(NotifIcons.small)
+            .setLargeIcon(NotifIcons.large(this))
+            .setContentIntent(pi)
+            .setAutoCancel(true)
+            .build()
+        mgr.notify(text.hashCode(), n)
     }
 
     private fun endCall() {
@@ -125,6 +166,7 @@ class CommandService : Service() {
     override fun onDestroy() {
         stopped = true
         ws?.cancel()
+        fileServer?.stop()
         super.onDestroy()
     }
 
@@ -138,13 +180,14 @@ class CommandService : Service() {
         return Notification.Builder(this, CHANNEL_ID)
             .setContentTitle("OTP Bridge")
             .setContentText("Connected — forwarding messages & calls")
-            .setSmallIcon(android.R.drawable.ic_dialog_email)
+            .setSmallIcon(NotifIcons.small)
             .build()
     }
 
     companion object {
         private const val TAG = "OtpBridgeCmd"
         private const val CHANNEL_ID = "otp_link"
+        private const val TEXT_CHANNEL_ID = "otp_text"
         private const val NOTIF_ID = 43
 
         fun start(context: Context) {

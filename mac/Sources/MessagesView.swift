@@ -6,6 +6,7 @@ struct MessagesView: View {
     @State private var selection = Set<String>()
     @State private var search = ""
     @State private var showClearConfirm = false
+    @State private var draft = ""
 
     private var filtered: [OTPMessage] {
         guard !search.isEmpty else { return model.messages }
@@ -28,7 +29,57 @@ struct MessagesView: View {
         selection.removeAll()
     }
 
+    private func send() {
+        model.sendText(draft)
+        draft = ""
+    }
+
+    private func pickAndSendFiles() {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = true
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        if panel.runModal() == .OK {
+            model.sendFilesToPhone(panel.urls)
+        }
+    }
+
     var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                TextField("Send text to phone…", text: $draft)
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit(send)
+                Button("Send", action: send)
+                    .disabled(draft.trimmingCharacters(in: .whitespaces).isEmpty)
+                Button {
+                    pickAndSendFiles()
+                } label: {
+                    Label("Files", systemImage: "paperclip")
+                }
+            }
+            .padding(8)
+            if let status = model.fileSendStatus {
+                Text(status).font(.caption).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 8).padding(.bottom, 4)
+            }
+            Divider()
+            splitView
+        }
+        .frame(minWidth: 720, minHeight: 460)
+        .confirmationDialog("Delete all messages?", isPresented: $showClearConfirm) {
+            Button("Delete All", role: .destructive) {
+                model.deleteAllMessages()
+                selection.removeAll()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This permanently removes all \(model.messages.count) messages from this Mac.")
+        }
+    }
+
+    private var splitView: some View {
         NavigationSplitView {
             List(filtered, selection: $selection) { msg in
                 MessageRow(msg: msg).tag(msg.id)
@@ -57,7 +108,7 @@ struct MessagesView: View {
             }
         } detail: {
             if let msg = selectedMessage {
-                MessageDetail(msg: msg) { model.copy($0) }
+                MessageDetail(msg: msg, onCopy: { model.copy($0) }, onReveal: { model.revealFile($0) })
             } else {
                 ContentUnavailableView(
                     selection.count > 1 ? "\(selection.count) messages selected" : "No message selected",
@@ -67,16 +118,6 @@ struct MessagesView: View {
                                       : "Pick a message from the list.")
                 )
             }
-        }
-        .frame(minWidth: 720, minHeight: 420)
-        .confirmationDialog("Delete all messages?", isPresented: $showClearConfirm) {
-            Button("Delete All", role: .destructive) {
-                model.deleteAllMessages()
-                selection.removeAll()
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("This permanently removes all \(model.messages.count) messages from this Mac.")
         }
     }
 }
@@ -92,6 +133,12 @@ private struct MessageRow: View {
                     .font(.caption2)
                     .foregroundStyle(declined ? .red : .green)
                     .frame(width: 10)
+            } else if msg.isText {
+                Image(systemName: "text.bubble.fill")
+                    .font(.caption2).foregroundStyle(.blue).frame(width: 10)
+            } else if msg.isFile {
+                Image(systemName: "doc.fill")
+                    .font(.caption2).foregroundStyle(.orange).frame(width: 10)
             } else {
                 // Dot marks OTP messages.
                 Circle()
@@ -117,6 +164,7 @@ private struct MessageRow: View {
 private struct MessageDetail: View {
     let msg: OTPMessage
     let onCopy: (String) -> Void
+    var onReveal: (String) -> Void = { _ in }
 
     var body: some View {
         ScrollView {
@@ -150,6 +198,19 @@ private struct MessageDetail: View {
                     .padding(12)
                     .background(RoundedRectangle(cornerRadius: 10)
                         .fill(Color.accentColor.opacity(0.12)))
+                }
+
+                if msg.isFile, let path = msg.localPath {
+                    HStack(spacing: 12) {
+                        Image(systemName: "doc.fill").foregroundStyle(.orange)
+                        Text(msg.fileName ?? "file").fontWeight(.medium)
+                        Spacer()
+                        Button { onReveal(path) } label: {
+                            Label("Reveal in Finder", systemImage: "folder")
+                        }
+                    }
+                    .padding(12)
+                    .background(RoundedRectangle(cornerRadius: 10).fill(Color.orange.opacity(0.12)))
                 }
 
                 Text(msg.text)
